@@ -12,53 +12,56 @@ const players = {}; // 存储客户端标识符和物体位置的映射
 io.on("connection", (socket) => {
   console.log(`User ${socket.id} connected`);
 
-  socket.on("login",(userName)=>{
-    let error ;
-    if(clients[socket.id] !== undefined){
-      error = "请刷新页面重试!"
-    }else if(players[userName] !== undefined){
-      error = "该用户名已存在游戏中!"
-    }else{
+  socket.on("login", (userName) => {
+    let error;
+    if (clients[socket.id] !== undefined) {
+      error = "请刷新页面重试!";
+    } else if (players[userName] !== undefined) {
+      error = "该用户名已存在游戏中!";
+    } else {
       // 生成随机横向位置（x坐标）
       const randomX = Math.random() * 2 - 1; // -1到1之间的随机数
       // 生成随机纵向位置（y坐标）
       const randomY = Math.random() * 2 - 1; // -1到1之间的随机数
       // 生成随机纵向位置（z坐标）
       const randomZ = Math.random() * 2 - 1; // -1到1之间的随机数
-      players[userName] = { userName: userName, position: { x: randomX, y: randomY, z: randomZ } };
+      players[userName] = {
+        userName: userName,
+        position: { x: randomX, y: randomY, z: randomZ },
+      };
       console.log(players[userName]);
-      clients[socket.id] = userName
-      socket.emit("success_login",players[userName],players);
+      clients[socket.id] = userName;
+      socket.emit("success_login", players[userName], players);
     }
-    if(error !== undefined){
-      socket.emit("error_login",error)
-      return
+    if (error !== undefined) {
+      socket.emit("error_login", error);
+      return;
     }
-    socket.emit("allPlayersPosition",players)
-  })
+    socket.emit("allPlayersPosition", players);
+  });
 
   // 监听客户端发送的位置更新消息
   socket.on("updatePosition", (userName, position) => {
-    console.log("updatePosition=>"+userName)
+    console.log("updatePosition=>" + userName);
     // 向其他客户端广播位置更新消息
-    console.log(players[userName])
+    console.log(players[userName]);
     if (players[userName]) {
       players[userName].position.x = position.x;
       players[userName].position.y = position.y;
       players[userName].position.z = position.z;
       console.log(players);
-      socket.emit("allPlayersPosition",players)
+      io.emit("allPlayersPosition", players);
     }
   });
 
   // 用户断开连接
   socket.on("disconnect", () => {
     console.log(`User ${socket.id} disconnected`);
-    if(clients[socket.id]){
-      const userName = clients[socket.id]
-      delete clients[socket.id]
-      if(userName){
-        delete players[userName]
+    if (clients[socket.id]) {
+      const userName = clients[socket.id];
+      delete clients[socket.id];
+      if (userName) {
+        delete players[userName];
       }
     }
   });
