@@ -20,18 +20,21 @@ io.on("connection", (socket) => {
       error = "该用户名已存在游戏中!";
     } else {
       // 生成随机横向位置（x坐标）
-      const randomX = Math.random() * 2 - 1; // -1到1之间的随机数
+      const randomX = Math.random() * 20 - 10; // -10到10之间的随机数
       // 生成随机纵向位置（y坐标）
-      const randomY = Math.random() * 2 - 1; // -1到1之间的随机数
+      const randomY = Math.random() * 20 - 10; // -10到10之间的随机数
       // 生成随机纵向位置（z坐标）
-      const randomZ = Math.random() * 2 - 1; // -1到1之间的随机数
+      const randomZ = Math.random() * 20 - 10; // -10到10之间的随机数
+
+      const position = {x: randomX, y: randomY, z: randomZ}
       players[userName] = {
         userName: userName,
-        position: { x: randomX, y: randomY, z: randomZ },
+        position: position,
       };
       console.log(players[userName]);
       clients[socket.id] = userName;
       socket.emit("success_login", players[userName], players);
+      io.emit("playerLogin",userName,position)
     }
     if (error !== undefined) {
       socket.emit("error_login", error);
@@ -62,6 +65,7 @@ io.on("connection", (socket) => {
       delete clients[socket.id];
       if (userName) {
         delete players[userName];
+        io.emit("playerDisconnect",userName)
       }
     }
   });

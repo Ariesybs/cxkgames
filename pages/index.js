@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   Scene,
   PerspectiveCamera,
@@ -6,12 +6,20 @@ import {
   BoxGeometry,
   MeshBasicMaterial,
   Mesh,
-  Vector3,
-  HorizontalBlurShader,
-  VerticalBlurShader,
-  CopyShader,
   CircleGeometry,
+  BackSide,
+  Spherical,
+  Vector3,
+  MeshStandardMaterial,
+  AmbientLight,
+  DirectionalLight,
+  Object3D,
+  Box3
 } from "three";
+import {FBXLoader} from "three/examples/jsm/loaders/FBXLoader"
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
@@ -38,7 +46,31 @@ const MultiplayerGame = () => {
     const renderer = new WebGLRenderer({ canvas: canvasRef.current });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-    camera.position.z = 5;
+    camera.position.z = 30;
+
+    /**========================================================SKY BOX============================================================================ */
+    // 创建一个立方体几何体
+    const skyboxGeometry = new BoxGeometry(1000, 1000, 1000); // 根据场景大小设置立方体大小
+    
+    // 创建自发光材质，设置颜色和发光强度
+    const skyboxMaterial = new MeshBasicMaterial({
+      color: 0x87ceeb, // 设置纯色，可以根据需要修改颜色
+      side:BackSide,
+      
+    });
+  
+    // 创建天空盒对象
+    const skybox = new Mesh(skyboxGeometry, skyboxMaterial);
+    
+    // 将天空盒添加到场景中
+    scene.add(skybox);
+
+    const directionalLight = new DirectionalLight(0xffffff, 2); // 使用白色，并设置光的强度为0.5
+    directionalLight.castShadow = true
+    directionalLight.position.set(100,100,100)
+    scene.add(directionalLight);
+    
+    
     /**========================================================MASK===========================================================================* */
     //创建模糊遮罩效果
 
@@ -91,33 +123,91 @@ const MultiplayerGame = () => {
     });
     loginContainer.appendChild(loginButton);
 
+    /**======================================================LOADER=========================================================== */
+    const fbxLoader = new FBXLoader()
+    const fontLoader = new FontLoader();
     /**======================================================OWN PLAYER========================================================================= */
     // 创建并初始化玩家对象
     const ownPlayerInit = (player) => {
-      const geometry = new BoxGeometry();
-      const material = new MeshBasicMaterial({ color: 0x00ff00 });
-      const cube = new Mesh(geometry, material);
+      console.log("own player init")
 
-      cube.position.copy(player.position);
-      scene.add(cube);
-      cubeRef.current = cube; // 存储物体的引用以便后续更新位置
+      // 创建玩家对象
+      const playerObj = addCXKMesh(userNameRef.current,player.position)
+        
+      cubeRef.current = playerObj;
+
+      // 创建OrbitControls控制器
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.copy(playerObj.position); // 将控制器的目标设置为要跟随的物体的位置
+
+      
+      
     };
+
+    // 加载玩家名字
+    const loadUserName=(userName,playerObj)=>{
+      
+      fontLoader.load("/font/STHupo.json",(font)=>{
+        const textGeometry = new TextGeometry(userName, {
+          font:font, // 使用字体
+          size: 1, // 文本大小
+          height: 0.01, // 文本厚度
+        });
+        const textMaterial = new MeshBasicMaterial({ color: 0x000000 });
+        const textMesh = new Mesh(textGeometry, textMaterial);
+
+        const textBoundingBox = new Box3().setFromObject(textMesh);
+        const textWidth = textBoundingBox.max.x - textBoundingBox.min.x;
+        // 计算偏移量以使文本居中
+        
+        const xOffset = -(textWidth / 2);
+        textMesh.position.set(xOffset, 9, 0);
+        
+        playerObj.add(textMesh)
+      })
+    }
 
     /**=====================================================OTHER PLAYERS====================================================================== */
     // 创建并初始化其他玩家的对象
     const otherPlayersInit = (players) => {
       Object.entries(players).forEach(([name, player]) => {
         if (name !== userNameRef.current) {
-          const playerGeometry = new CircleGeometry();
-          const playerMaterial = new MeshBasicMaterial({ color: 0xff0000 });
-          const playerMesh = new Mesh(playerGeometry, playerMaterial);
-          otherPlayerMeshDict[name] = playerMesh;
-          playerMesh.position.copy(player.position);
-          scene.add(playerMesh);
+          addCXKMesh(name,player.position)
         }
       });
     };
 
+    /**=====================================================ADD MESH===================================================================== */
+
+    const addCXKMesh = (name,position)=>{
+      const playerObj = new Object3D();
+      fbxLoader.load("/model/cxk.fbx",(cxk)=>{
+        playerObj.position.copy(position)
+        
+        cxk.castShadow = true
+        playerObj.add(cxk)
+        otherPlayerMeshDict[name] = playerObj;
+        loadUserName(name,playerObj)
+        scene.add(playerObj)})
+        return playerObj
+    }
+
+    /**==========================================================REMOVE MESH====================================================================== */
+
+
+    const removePlayerMesh = (name)=>{
+      console.log("remove mesh")
+      const mesh =  otherPlayerMeshDict[name]
+      if(mesh){
+        //mesh.visible = false
+        scene.remove(mesh)
+        
+        console.log(mesh)
+        console.log(cubeRef.current)
+        
+      }
+      
+    }
     /**==========================================================SERVER===================================================================**/
     // 登陆成功后获取用户名
     socket.on("success_login", (player, players) => {
@@ -148,9 +238,24 @@ const MultiplayerGame = () => {
     socket.on("allPlayersPosition", (players) => {
       //获取所有玩家位置
       playersRef.current = players;
-      //console.log(players);
-      // updateLocation(players);
+
     });
+
+    //玩家上线列表
+    socket.on("playerLogin",(userName,position)=>{
+      if(isLoginRef.current){
+        if (userName !== userNameRef.current ) {
+          addCXKMesh(userName,position)
+          }
+      }
+      
+    })
+
+    // 玩家掉线
+    socket.on("playerDisconnect",(username)=>{
+      console.log(`${username} disconnected`)
+      removePlayerMesh(username)
+    })
 
     /**==================================================RENDER======================================================================= */
     const updateLocation = (players) => {
@@ -170,6 +275,7 @@ const MultiplayerGame = () => {
       requestAnimationFrame(animate);
       //console.log(playersRef.current);
       updateLocation(playersRef.current);
+      
       renderer.render(scene, camera);
     };
     animate();
@@ -178,7 +284,7 @@ const MultiplayerGame = () => {
     // 监听键盘移动事件
     const handleKeyPress = (event) => {
       if (isLoginRef.current) {
-        const speed = 0.1; // 移动速度
+        const speed = 0.5; // 移动速度
         const cube = cubeRef.current;
         switch (event.key) {
           case "w":
@@ -214,6 +320,11 @@ const MultiplayerGame = () => {
       });
     };
 
+    //监听鼠标移动
+    
+   
+
+    
     window.addEventListener("keydown", handleKeyPress);
     /**============================================================================================================================== */
     return () => {
