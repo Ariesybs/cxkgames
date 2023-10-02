@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from "react";
+import Matter from 'matter-js';
 import {
   Scene,
-  PerspectiveCamera,
+  PerspectiveCamera,  
   WebGLRenderer,
   BoxGeometry,
   MeshBasicMaterial,
@@ -14,7 +15,9 @@ import {
   AmbientLight,
   DirectionalLight,
   Object3D,
-  Box3
+  Box3,
+  DoubleSide,
+  PlaneGeometry
 } from "three";
 import {FBXLoader} from "three/examples/jsm/loaders/FBXLoader"
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -33,6 +36,11 @@ const MultiplayerGame = () => {
   const playersRef = useRef([]);
   const otherPlayerMeshDict = {};
   const isLoginRef = useRef(false);
+  const controlsRef = useRef(null)
+  const isMovingUpRef = useRef(null);
+  const isMovingDownRef = useRef(null);
+  const isMovingLeftRef = useRef(null);
+  const isMovingRightRef = useRef(null);
   useEffect(() => {
     /**=======================================================SCENE INIT====================================================================== */
     // 初始化Three.js场景
@@ -44,9 +52,19 @@ const MultiplayerGame = () => {
       1000
     );
     const renderer = new WebGLRenderer({ canvas: canvasRef.current });
+    renderer.shadowMap.enabled = true
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-    camera.position.z = 30;
+    camera.position.y = 300
+    camera.position.z = 300;
+
+    /**======================================================MATTER ENGINE========================================================= */
+    // const engine = Matter.Engine.create();
+    // const boxA = Matter.Bodies.rectangle(0, 0, 1, 1);
+    // Matter.World.add(engine.world, [boxA]);
+    /**======================================================LOADER=========================================================== */
+    const fbxLoader = new FBXLoader()
+    const fontLoader = new FontLoader();
 
     /**========================================================SKY BOX============================================================================ */
     // 创建一个立方体几何体
@@ -65,11 +83,16 @@ const MultiplayerGame = () => {
     // 将天空盒添加到场景中
     scene.add(skybox);
 
-    const directionalLight = new DirectionalLight(0xffffff, 2); // 使用白色，并设置光的强度为0.5
-    directionalLight.castShadow = true
-    directionalLight.position.set(100,100,100)
-    scene.add(directionalLight);
-    
+    const light  = new AmbientLight(0xffffff, 2); // 使用白色，并设置光的强度为0.5
+    light.position.set(0,1000,0)
+    scene.add(light);
+
+    /**=================================================LOAD BASKEBALL COURT===================================================================== */
+    fbxLoader.load("/model/map.fbx",(map)=>{
+      map.receiveShadow = true
+      scene.add(map)
+      camera.lookAt(map.position)
+    })
     
     /**========================================================MASK===========================================================================* */
     //创建模糊遮罩效果
@@ -123,24 +146,16 @@ const MultiplayerGame = () => {
     });
     loginContainer.appendChild(loginButton);
 
-    /**======================================================LOADER=========================================================== */
-    const fbxLoader = new FBXLoader()
-    const fontLoader = new FontLoader();
+    
     /**======================================================OWN PLAYER========================================================================= */
     // 创建并初始化玩家对象
     const ownPlayerInit = (player) => {
       console.log("own player init")
 
       // 创建玩家对象
-      const playerObj = addCXKMesh(userNameRef.current,player.position)
+      const playerObj = addCXKMesh(userNameRef.current,player.position,player.rotation)
         
       cubeRef.current = playerObj;
-
-      // 创建OrbitControls控制器
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.copy(playerObj.position); // 将控制器的目标设置为要跟随的物体的位置
-
-      
       
     };
 
@@ -150,10 +165,10 @@ const MultiplayerGame = () => {
       fontLoader.load("/font/STHupo.json",(font)=>{
         const textGeometry = new TextGeometry(userName, {
           font:font, // 使用字体
-          size: 1, // 文本大小
+          size: 3, // 文本大小
           height: 0.01, // 文本厚度
         });
-        const textMaterial = new MeshBasicMaterial({ color: 0x000000 });
+        const textMaterial = new MeshBasicMaterial({ color: 0xFFFFFF });
         const textMesh = new Mesh(textGeometry, textMaterial);
 
         const textBoundingBox = new Box3().setFromObject(textMesh);
@@ -161,7 +176,7 @@ const MultiplayerGame = () => {
         // 计算偏移量以使文本居中
         
         const xOffset = -(textWidth / 2);
-        textMesh.position.set(xOffset, 9, 0);
+        textMesh.position.set(xOffset, 10, 0);
         
         playerObj.add(textMesh)
       })
@@ -179,12 +194,22 @@ const MultiplayerGame = () => {
 
     /**=====================================================ADD MESH===================================================================== */
 
-    const addCXKMesh = (name,position)=>{
+    const addCXKMesh = (name,position,rotation)=>{
       const playerObj = new Object3D();
+      const shadowGeometry = new CircleGeometry(3, 32); // 适当的大小
+      const shadowMaterial = new MeshBasicMaterial({color:0x222222});
+      const shadowPlane = new Mesh(shadowGeometry, shadowMaterial);
+      shadowPlane.position.set(0, -4.5, 0); // 略微提高以避免Z-fighting
+      shadowPlane.rotateX(-Math.PI/2)
+      //scene.add(shadowPlane);
+      
       fbxLoader.load("/model/cxk.fbx",(cxk)=>{
-        playerObj.position.copy(position)
-        
+        playerObj.position.set({x:0,y:32,z:0})
+        playerObj.scale.set(2,2,2)
         cxk.castShadow = true
+        playerObj.cxk = cxk
+        
+        playerObj.add(shadowPlane)
         playerObj.add(cxk)
         otherPlayerMeshDict[name] = playerObj;
         loadUserName(name,playerObj)
@@ -259,55 +284,66 @@ const MultiplayerGame = () => {
 
     /**==================================================RENDER======================================================================= */
     const updateLocation = (players) => {
-      //console.log(players);
+      
       Object.entries(players).forEach(([name, player]) => {
-        if (otherPlayerMeshDict[name]) {
-          const otherPlayer = otherPlayerMeshDict[name];
-          otherPlayer.position.x = player.position.x;
-          otherPlayer.position.y = player.position.y;
-          otherPlayer.position.z = player.position.z;
+        const otherPlayer = otherPlayerMeshDict[name];
+        if (otherPlayer) {
+          console.log(player.rotation)
+          otherPlayer.position.copy(player.position)
+          
+          
+          // otherPlayer.position.x = player.position.x;
+          // otherPlayer.position.y = player.position.y;
+          // otherPlayer.position.z = player.position.z;
+          otherPlayer.rotation.x = player.rotation.x;
+          otherPlayer.rotation.y = player.rotation.y;
+          otherPlayer.rotation.z = player.rotation.z;
         }
       });
     };
 
-    // 渲染场景
-    const animate = () => {
-      requestAnimationFrame(animate);
-      //console.log(playersRef.current);
-      updateLocation(playersRef.current);
-      
-      renderer.render(scene, camera);
-    };
-    animate();
-
     /**==================================================LISTENNER====================================================================== */
     // 监听键盘移动事件
-    const handleKeyPress = (event) => {
+
+    window.addEventListener("keydown",(event)=> {
+      
       if (isLoginRef.current) {
-        const speed = 0.5; // 移动速度
-        const cube = cubeRef.current;
-        switch (event.key) {
-          case "w":
-            cube.position.y += speed;
-            sendPositionToServer();
-            break;
-          case "s":
-            cube.position.y -= speed;
-            sendPositionToServer();
-            break;
-          case "a":
-            cube.position.x -= speed;
-            sendPositionToServer();
-            break;
-          case "d":
-            cube.position.x += speed;
-            sendPositionToServer();
-            break;
-          default:
-            break;
+        const playerObj = cubeRef.current
+        if (event.key === 'w') {  // W键
+          isMovingUpRef.current = true;
+          
+          
+        } else if (event.key === 's') {  // S键
+          isMovingDownRef.current = true;
+          
+          
+          
+        } else if (event.key === 'a') {  // A键
+          isMovingLeftRef.current = true;
+          
+          
+        } else if (event.key === 'd') {  // D键
+          isMovingRightRef.current = true;
+          
+         
+        }
+        
+      }
+    });
+
+    window.addEventListener("keyup",(event)=>{
+      if (isLoginRef.current) {
+        if (event.key === 'w') {  // W键
+          isMovingUpRef.current = false;
+        } else if (event.key === 's') {  // S键
+          isMovingDownRef.current = false;
+        } else if (event.key === 'a') {  // A键
+          isMovingLeftRef.current = false;
+        } else if (event.key === 'd') {  // D键
+          isMovingRightRef.current = false;
         }
       }
-    };
+    })
 
     // 发送本地物体位置到服务器
     const sendPositionToServer = () => {
@@ -317,22 +353,79 @@ const MultiplayerGame = () => {
         x: cube.position.x,
         y: cube.position.y,
         z: cube.position.z,
+      },
+      {
+        x:cube.rotation.x,
+        y:cube.rotation.y,
+        z:cube.rotation.z
       });
     };
 
-    //监听鼠标移动
-    
-   
+
+
+    // 渲染场景
+    const animate = () => {
+      requestAnimationFrame(animate);
+      updateLocation(playersRef.current );
+      
+      if(cubeRef.current){
+        const playerObj = cubeRef.current
+        console.log(cubeRef.current.rotation)
+        if(isMovingLeftRef.current){
+          cubeRef.current.position.x -= 0.5
+          playerObj.rotation.x = 0; // 重置其他旋转
+          playerObj.rotation.z = 0; // 重置其他旋转
+          playerObj.rotation.y = 0; // 重置其他旋转
+          playerObj.rotateY(-Math.PI/2); // 
+          sendPositionToServer()
+        }
+        if(isMovingRightRef.current){
+          cubeRef.current.position.x += 0.5
+          playerObj.rotation.x = 0; // 重置其他旋转
+          playerObj.rotation.z = 0; // 重置其他旋转
+          playerObj.rotation.y = 0; // 重置其他旋转
+          playerObj.rotateY(Math.PI/2); // 
+          sendPositionToServer()
+        }
+        if(isMovingUpRef.current){
+          cubeRef.current.position.z -= 0.5
+          playerObj.rotation.x = 0; // 重置其他旋转
+          playerObj.rotation.z = 0; // 重置其他旋转
+          playerObj.rotation.y = 0; // 重置其他旋转
+          playerObj.rotateY(Math.PI); // 向上
+          sendPositionToServer()
+        }
+        if(isMovingDownRef.current){
+          cubeRef.current.position.z += 0.5
+          playerObj.rotation.x = 0; // 重置其他旋转
+          playerObj.rotation.z = 0; // 重置其他旋转
+          playerObj.rotation.y = 0; // 重置其他旋转
+          sendPositionToServer()
+        }
+        
+        camera.position.copy(cubeRef.current.position.clone().add(new Vector3(0,50,100)))
+        camera.lookAt(cubeRef.current.position)
+      }
+      
+      renderer.render(scene, camera);
+    };
+    animate();
+
+
+
 
     
-    window.addEventListener("keydown", handleKeyPress);
     /**============================================================================================================================== */
     return () => {
-      window.removeEventListener("keydown", handleKeyPress);
+      
     };
   }, []);
 
-  return <canvas ref={canvasRef} />;
+  return (
+  <div style={{overflow:'hidden'}}>
+  <canvas ref={canvasRef}/>
+  </div>
+  )
 };
 
 export default MultiplayerGame;
